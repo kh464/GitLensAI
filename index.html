@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeSense - Vue 3 企业版</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Vue 3 (Global Build) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入 Marked.js 用于 Markdown 渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 引入 Lucide Icons (模拟企业UI图标组件) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans h-screen overflow-hidden">
+    
+    <div id="app" v-cloak class="flex flex-col h-full">
+        <!-- 头部区域 -->
+        <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm z-10 shrink-0">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-600 rounded-lg">
+                    <i data-lucide="github" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-800 tracking-tight">CodeSense <span class="text-indigo-600">Vue</span></h1>
+                    <p class="text-xs text-slate-500 font-medium">企业级架构解析助手</p>
+                </div>
+            </div>
+            
+            <div class="flex-1 max-w-2xl mx-8 relative flex items-center">
+                <input
+                    type="text"
+                    v-model="githubUrl"
+                    @keyup.enter="handleAnalyze"
+                    placeholder="输入 GitHub 仓库链接，例如：https://github.com/vuejs/core"
+                    class="w-full pl-4 pr-32 py-2.5 bg-slate-100 border-transparent rounded-full focus:bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition-all duration-200 text-sm"
+                />
+                <button
+                    @click="handleAnalyze"
+                    :disabled="isLoading || !githubUrl"
+                    class="absolute right-1 top-1 bottom-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-5 rounded-full text-sm font-medium transition-colors flex items-center"
+                >
+                    <i v-if="isLoading" data-lucide="loader-2" class="w-4 h-4 animate-spin mr-2"></i>
+                    <i v-else data-lucide="search" class="w-4 h-4 mr-2"></i>
+                    {{ isLoading ? '分析中...' : '开始分析' }}
+                </button>
+            </div>
+        </header>
+
+        <!-- 错误提示 -->
+        <div v-if="errorMsg" class="bg-red-50 border-l-4 border-red-500 p-4 mx-4 mt-4 flex items-center rounded-r-md shrink-0">
+            <i data-lucide="alert-circle" class="w-5 h-5 text-red-500 mr-3"></i>
+            <p class="text-sm text-red-700">{{ errorMsg }}</p>
+        </div>
+
+        <!-- 主工作区 -->
+        <main class="flex-1 flex overflow-hidden min-h-0">
+            
+            <!-- 左侧：架构文档 -->
+            <div class="w-1/2 flex flex-col border-r border-slate-200 bg-white">
+                <div class="flex items-center border-b border-slate-200 px-2 py-2 bg-slate-50/50 shrink-0">
+                    <button class="flex items-center px-4 py-2 text-sm font-medium rounded-md bg-indigo-50 text-indigo-700 transition-colors">
+                        <i data-lucide="book-open" class="w-4 h-4 mr-2"></i> 架构与文档
+                    </button>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                    <div v-if="isLoading" class="flex flex-col items-center justify-center h-full text-slate-400">
+                        <div class="relative w-24 h-24 mb-6">
+                            <div class="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
+                            <div class="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+                            <i data-lucide="file-code-2" class="absolute inset-0 m-auto w-8 h-8 text-indigo-600 animate-pulse"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-slate-700 mb-2">后端正在处理分析任务...</h3>
+                        <p class="text-sm">正调用 FastAPI 服务抓取树结构并生成报告</p>
+                    </div>
+                    
+                    <div v-else-if="architectureDocs" 
+                         class="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-100"
+                         v-html="renderedDocs">
+                    </div>
+                    
+                    <div v-else class="flex flex-col items-center justify-center h-full text-slate-400">
+                        <i data-lucide="folder-git-2" class="w-16 h-16 mb-4 text-slate-200"></i>
+                        <p>左侧区域将展示后端返回的分析报告。</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：智能问答 (Agent) -->
+            <div class="w-1/2 flex flex-col bg-slate-50 relative">
+                <div class="flex items-center border-b border-slate-200 px-6 py-4 bg-white shadow-sm z-10 shrink-0">
+                    <i data-lucide="terminal" class="w-5 h-5 text-emerald-600 mr-2"></i>
+                    <h2 class="text-sm font-semibold text-slate-800">Vue 智能终端 (Agent)</h2>
+                </div>
+
+                <!-- 聊天列表 -->
+                <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar" ref="chatContainer">
+                    <div v-for="(msg, index) in chatMessages" :key="index" 
+                         :class="['flex', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+                        
+                        <div :class="['flex max-w-[85%] items-start', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row']">
+                            
+                            <!-- 头像 -->
+                            <div :class="['flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1', 
+                                         msg.role === 'user' ? 'bg-indigo-100 ml-3' : 'bg-emerald-100 mr-3']">
+                                <span v-if="msg.role === 'user'" class="text-indigo-600 font-bold text-xs">Me</span>
+                                <i v-else data-lucide="message-square" class="w-4 h-4 text-emerald-600"></i>
+                            </div>
+                            
+                            <!-- 消息体 -->
+                            <div :class="['p-4 rounded-2xl', 
+                                         msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm']">
+                                <p v-if="msg.role === 'user'" class="text-sm whitespace-pre-wrap leading-relaxed">{{ msg.content }}</p>
+                                <div v-else 
+                                     class="prose prose-sm max-w-none prose-slate prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-100"
+                                     v-html="renderMarkdown(msg.content)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 聊天打字动画 -->
+                    <div v-if="isChatting" class="flex justify-start">
+                        <div class="flex items-center space-x-2 bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none shadow-sm ml-11">
+                            <div class="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                            <div class="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+                            <div class="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 聊天输入框 -->
+                <div class="p-4 bg-white border-t border-slate-200 shrink-0">
+                    <div :class="['relative flex items-end bg-slate-50 border rounded-xl overflow-hidden transition-colors', 
+                                 !repoInfo ? 'border-slate-200 bg-slate-100' : 'border-indigo-100 focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400']">
+                        <textarea
+                            v-model="currentInput"
+                            @keydown.enter.exact.prevent="handleSendMessage"
+                            :disabled="!repoInfo || isChatting"
+                            :placeholder="repoInfo ? '向导师提问 (Enter 发送，Shift+Enter 换行)...' : '请先分析一个项目后，再进行提问...'"
+                            class="w-full max-h-32 min-h-[56px] py-3 pl-4 pr-14 bg-transparent resize-none outline-none text-sm text-slate-800 disabled:cursor-not-allowed"
+                            rows="1"
+                        ></textarea>
+                        <button
+                            @click="handleSendMessage"
+                            :disabled="!currentInput.trim() || !repoInfo || isChatting"
+                            class="absolute right-2 bottom-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <i data-lucide="send" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, nextTick, onUpdated } = Vue;
+
+        // ==========================================
+        // 企业级前端设计模式：API 服务层抽离 (Service Layer)
+        // ==========================================
+        const BACKEND_BASE_URL = 'http://localhost:3001/api/v1';
+
+        const ApiService = {
+            async analyzeRepo(url) {
+                const response = await fetch(`${BACKEND_BASE_URL}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ github_url: url })
+                });
+                if (!response.ok) {
+                    const err = await response.json().catch(()=>({}));
+                    throw new Error(err.detail || '分析请求失败');
+                }
+                return response.json();
+            },
+
+            async chatWithAgent(messages, repoInfo) {
+                const response = await fetch(`${BACKEND_BASE_URL}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages, repo_info: repoInfo })
+                });
+                if (!response.ok) {
+                    throw new Error('对话请求失败');
+                }
+                return response.json();
+            }
+        };
+
+        // ==========================================
+        // Vue 3 应用主入口 (采用 Composition API 风格)
+        // ==========================================
+        createApp({
+            setup() {
+                // --- 响应式状态定义 ---
+                const githubUrl = ref('');
+                const isLoading = ref(false);
+                const errorMsg = ref('');
+                
+                const repoName = ref('');
+                const repoInfo = ref('');
+                const architectureDocs = ref('');
+                
+                const chatMessages = ref([
+                    { role: 'ai', content: '你好！我是 Vue 版本的代码阅读助手。请先输入 GitHub 链接并点击“分析”，然后你就可以向我提问关于这个项目的任何问题了！' }
+                ]);
+                const currentInput = ref('');
+                const isChatting = ref(false);
+                const chatContainer = ref(null);
+
+                // --- 计算属性 ---
+                const renderedDocs = computed(() => {
+                    return architectureDocs.value ? marked.parse(architectureDocs.value) : '';
+                });
+
+                // --- 方法区 ---
+                const renderMarkdown = (text) => {
+                    return text ? marked.parse(text) : '';
+                };
+
+                const scrollToBottom = async () => {
+                    await nextTick();
+                    if (chatContainer.value) {
+                        chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+                    }
+                };
+
+                // 处理图标重绘
+                onUpdated(() => {
+                    lucide.createIcons();
+                });
+
+                // 发起分析请求
+                const handleAnalyze = async () => {
+                    if (!githubUrl.value.trim() || isLoading.value) return;
+                    
+                    errorMsg.value = '';
+                    isLoading.value = true;
+                    architectureDocs.value = '';
+                    
+                    try {
+                        const data = await ApiService.analyzeRepo(githubUrl.value);
+                        repoName.value = data.repo_name;
+                        repoInfo.value = data.repo_info;
+                        architectureDocs.value = data.docs;
+                        
+                        chatMessages.value = [
+                            { role: 'ai', content: `我已经完成了对 **${data.repo_name}** 的初步分析，报告在左侧。现在，关于它你有任何技术疑问都可以发给我。` }
+                        ];
+                    } catch (err) {
+                        errorMsg.value = err.message || '网络或后端服务异常，请确保 FastAPI 后端 (端口3001) 已启动。';
+                    } finally {
+                        isLoading.value = false;
+                        scrollToBottom();
+                    }
+                };
+
+                // 发送聊天消息
+                const handleSendMessage = async () => {
+                    if (!currentInput.value.trim() || !repoInfo.value || isChatting.value) return;
+
+                    const userMsg = currentInput.value.trim();
+                    chatMessages.value.push({ role: 'user', content: userMsg });
+                    currentInput.value = '';
+                    isChatting.value = true;
+                    scrollToBottom();
+
+                    try {
+                        // 构建发给后端的 payload（过滤掉纯本地的初始欢迎语等，只保留有效对话）
+                        const payloadMessages = chatMessages.value.map(m => ({ role: m.role, content: m.content }));
+                        
+                        const data = await ApiService.chatWithAgent(payloadMessages, repoInfo.value);
+                        chatMessages.value.push({ role: 'ai', content: data.reply });
+                    } catch (err) {
+                        chatMessages.value.push({ role: 'ai', content: "⚠️ 抱歉，与后端的通信出现问题，请检查后端运行状态。" });
+                    } finally {
+                        isChatting.value = false;
+                        scrollToBottom();
+                    }
+                };
+
+                // 初始图标渲染
+                nextTick(() => {
+                    lucide.createIcons();
+                });
+
+                return {
+                    githubUrl,
+                    isLoading,
+                    errorMsg,
+                    repoInfo,
+                    architectureDocs,
+                    chatMessages,
+                    currentInput,
+                    isChatting,
+                    chatContainer,
+                    renderedDocs,
+                    handleAnalyze,
+                    handleSendMessage,
+                    renderMarkdown
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
