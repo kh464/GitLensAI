@@ -1,0 +1,12 @@
+.env
+.env.*
+*.pem
+*.key
+
+venv/
+.venv/
+env/
+.env_venv/
+ENV/
+env.bak/
+venv.bak/
